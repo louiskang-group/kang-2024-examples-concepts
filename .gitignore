@@ -1,0 +1,8 @@
+# Large datasets; downloaded automatically or found in Google Drive repository
+*/data
+
+# C compiled binaries
+*.o
+
+# Auto-generated Python scripts for multiprocessing
+*_nb.py

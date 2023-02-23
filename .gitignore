@@ -1,7 +1,7 @@
 */.ipynb_checkpoints
 
 # Large datasets; downloaded automatically or found in Google Drive repository
-*/data
+data
 
 # C compiled binaries
 *.o

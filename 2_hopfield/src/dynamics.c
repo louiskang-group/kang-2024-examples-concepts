@@ -1,8 +1,8 @@
 /*******************************************************************************
  *
- *  FILE:         hopfield.c
+ *  FILE:         dynamics.c
  *
- *  DATE:         
+ *  DATE:         24 February 2023
  *
  *  AUTHORS:      Louis Kang, University of Pennsylvania
  *
@@ -10,15 +10,10 @@
  *
  *  REFERENCE:  
  *
- *  PURPOSE:      
+ *  PURPOSE:      Simulating a Hopfield model with dual encodings. The
+ *                inhibition level can vary over time.
  *
- *  DEPENDENCIES: FFTW3 single-precision
- *                ziggurat random number generation package by John Burkardt
- *
- *******************************************************************************
- *
- *
- *  This is the source code for simulating a hopfield network
+ *  DEPENDENCIES: Intel oneAPI MKL
  *
  ******************************************************************************/
 
@@ -34,50 +29,38 @@
 #include <fcntl.h>
 
 #include "mkl.h"
-#include "ziggurat.h"
 
 //==============================================================================
-// Parameters and default value declarations
+// Parameters and global variables
 //==============================================================================
 
-// Variables with an asterisk can be set as command line arguments with flags.
-// See Reading in parameters section for syntax.
-
-// MLK threading ---------------------------------------------------------------
-int threads = 1;
 
 // Random ----------------------------------------------------------------------
-uint32_t r4seed = 0;      //* 0: use time as random seed
-float r4fn[128];          //  for ziggurat package
-uint32_t r4kn[128];       //  for ziggurat package
-float r4wn[128];          //  for ziggurat package
-
+uint32_t r4seed = 0;
 #define RUNI r4_uni(&r4seed)
-#define RNOR r4_nor(&r4seed,r4kn,r4fn,r4wn)
 
 // Iterations and time ---------------------------------------------------------
-int T_sim = 100;    //* Main simulation timesteps
-int T_rec = 10;     //* Print every tscreen timesteps
+int T_sim = 100;
+int T_rec = 10;
 int T_subcycle = 0;
-int n_rec;
 enum sequence_type {sequential, block_random, full_random};
 enum sequence_type update_type = block_random;
 
 // Network ---------------------------------------------------------------------
-int N = 0;        //* Number of neurons per side
+int N;
 int p = 1;        
 int s = 10;      
 int N_bin;
-int p_max = 0;
-int s_max = 0;
+int p_max;
+int s_max;
 float g = 0.1;
 float beta = 0.;
-float a_sparse = 0.;
-float a_dense = 0.;
+float a_sparse;
+float a_dense;
 float a_fac;
 
 float *w;
-float f = 0.;
+float f = 0.;     // strength of cue as input during retrieval
 
 // Theta -----------------------------------------------------------------------
 float *theta;
@@ -112,14 +95,14 @@ enum overlap_type {classic, custom};
 enum overlap_type record_type = classic;
 
 // I/O -------------------------------------------------------------------------
-char fileroot[256] = "";  //* Output filename root
+char fileroot[256] = "";
 int save_activity = 0;
 int stat_screen = 1;
 int stat_log = 1;
 FILE *stat_file;
 
 //==============================================================================
-// END Parameters and default value declarations
+// END Parameters and global variables
 //==============================================================================
 
 
@@ -387,6 +370,23 @@ void sample (int n_pop, int n_samp, int *arr) {
 
 }
 
+float r4_uni (uint32_t *jsr) {
+
+  uint32_t jsr_input;
+  float value;
+
+  jsr_input = *jsr;
+
+  *jsr = ( *jsr ^ ( *jsr <<   13 ) );
+  *jsr = ( *jsr ^ ( *jsr >>   17 ) );
+  *jsr = ( *jsr ^ ( *jsr <<    5 ) );
+
+  value = fmod ( 0.5 
+    + ( float ) ( jsr_input + *jsr ) / 65536.0 / 65536.0, 1.0 );
+
+  return value;
+}
+
 //==============================================================================
 // END Math utility functions
 //==============================================================================
@@ -404,9 +404,6 @@ void read_parameters (int argc, char *argv[]) {
   while (narg < argc) {
     if (!strcmp(argv[narg],"-fileroot")) {
       sscanf(argv[narg+1],"%s",fileroot);
-      narg += 2;
-    } else if (!strcmp(argv[narg],"-threads")) {
-      sscanf(argv[narg+1],"%d",&threads);
       narg += 2;
     } else if (!strcmp(argv[narg],"-seed")) {
       sscanf(argv[narg+1],"%d",&r4seed);
@@ -1002,7 +999,6 @@ void setup_theta () {
 // Dynamics
 //==============================================================================
 
-// Initialize neural activity
 void initialize_activity (int i_cue, unsigned char *S) {
 
   int n_active, n_incomp, n_inacc;
@@ -1087,7 +1083,6 @@ void plan_updates (unsigned char *S, int *q_update) {
 }
 
 
-// Setup neural populations and initialize firing rates
 void update_activity (unsigned char *S, int q, float theta) {
 
   float h;
@@ -1265,8 +1260,6 @@ int main (int argc, char *argv[]) {
   setup_parameters(argc, argv);
 
   print_stat("\nSTARTING NETWORK SETUP\n");
-
-  mkl_set_num_threads(threads);
 
   setup_patterns();
 

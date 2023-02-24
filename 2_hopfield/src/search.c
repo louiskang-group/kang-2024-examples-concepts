@@ -1,8 +1,8 @@
 /*******************************************************************************
  *
- *  FILE:         hopfield.c
+ *  FILE:         search.c
  *
- *  DATE:         
+ *  DATE:         24 February 2023
  *
  *  AUTHORS:      Louis Kang, University of Pennsylvania
  *
@@ -10,15 +10,10 @@
  *
  *  REFERENCE:  
  *
- *  PURPOSE:      
+ *  PURPOSE:      Simulating a Hopfield model with dual encodings. A search over
+ *                the inhibition level can be performed to maximize overlap.
  *
- *  DEPENDENCIES: FFTW3 single-precision
- *                ziggurat random number generation package by John Burkardt
- *
- *******************************************************************************
- *
- *
- *  This is the source code for simulating a hopfield network
+ *  DEPENDENCIES: Intel oneAPI MKL
  *
  ******************************************************************************/
 
@@ -34,58 +29,48 @@
 #include <fcntl.h>
 
 #include "mkl.h"
-#include "ziggurat.h"
 
 //==============================================================================
-// Parameters and default value declarations
+// Parameters and global variables
 //==============================================================================
 
-// Variables with an asterisk can be set as command line arguments with flags.
-// See Reading in parameters section for syntax.
-
-// MLK threading ---------------------------------------------------------------
-int threads = 1;
+// See Reading in parameters section for the syntax for setting parameters as
+// command line arguments.
 
 // Random ----------------------------------------------------------------------
-uint32_t r4seed = 0;      //* 0: use time as random seed
-float r4fn[128];          //  for ziggurat package
-uint32_t r4kn[128];       //  for ziggurat package
-float r4wn[128];          //  for ziggurat package
-
+uint32_t r4seed = 0;      // 0: use time as random seed
 #define RUNI r4_uni(&r4seed)
-#define RNOR r4_nor(&r4seed,r4kn,r4fn,r4wn)
 
 // Iterations and time ---------------------------------------------------------
-int T_sim = 100;    //* Main simulation timesteps
-int T_rec = 10;     //* Print every tscreen timesteps
-int T_subcycle = 0;
-int n_rec;
+int T_sim = 100;    // Main simulation timesteps
+int T_rec = 10;     // Print every tscreen timesteps
 enum sequence_type {sequential, block_random, full_random};
 enum sequence_type update_type = block_random;
 
 // Network ---------------------------------------------------------------------
-int N = 0;        //* Number of neurons per side
-int p = 1;        
-int s = 10;      
+int N;                // number of neurons
+int p = 1;            // number of categories stored
+int s = 10;           // number of examples per category stored
 int N_bin;
-int p_max = 0;
-int s_max = 0;
-float g = 0.1;
-float beta = 0.;
-float a_sparse = 0.;
-float a_dense = 0.;
+int p_max;            // number of categories in file
+int s_max;            // number of examples per category in file
+float g = 0.1;        // dense pattern strength; half of the corresponding value
+                      //   in the manuscript.
+float beta = 0.;      // rescaled inverse temperature
+float a_sparse;       // sparse pattern sparsity
+float a_dense;        // dense pattern sparsity
 float a_fac;
 
 float *w;
 
 // Pattern ---------------------------------------------------------------------
 char X_dir[256] = "";
-int n_cue = 100;        
+int n_cue = 100;
 enum pattern_type {sparse, dense, cat, both};
 enum pattern_type cue_type = sparse;
 enum pattern_type target_type = sparse;
-float incomp = 0.;
-float inacc = 0.;
+float incomp = 0.;   // fraction of active neurons to inactivate in cue
+float inacc = 0.;    // fraction of random flips in cue
 
 int sparse_file, dense_file, cat_file;
 int shuffle_patterns = 1;
@@ -117,14 +102,14 @@ int T_search = 3;
 int n_search = 20;
 
 // I/O -------------------------------------------------------------------------
-char fileroot[256] = "";  //* Output filename root
+char fileroot[256] = "";  // Output filename root
 int save_activity = 0;
 int stat_screen = 1;
 int stat_log = 1;
 FILE *stat_file;
 
 //==============================================================================
-// END Parameters and default value declarations
+// END Parameters and global variables
 //==============================================================================
 
 
@@ -200,6 +185,7 @@ void print_err (char *format, ...) {
 }
 
 
+// Circularly rotate byte c by n places leftward
 static inline unsigned char rotl (unsigned char c, unsigned int n) {
 
   n &= 7;
@@ -207,6 +193,7 @@ static inline unsigned char rotl (unsigned char c, unsigned int n) {
 
 }
 
+// Circularly rotate byte c by n places rightward
 static inline unsigned char rotr (unsigned char c, unsigned int n) {
 
   n &= 7;
@@ -214,6 +201,7 @@ static inline unsigned char rotr (unsigned char c, unsigned int n) {
 
 }
 
+// Implements np.packbits with bitorder='big'
 void compress_binary_char (
     unsigned char *raw, unsigned char *bin, int n_raw
 ) {
@@ -228,6 +216,7 @@ void compress_binary_char (
 
 }
 
+// Implements np.unpackbits with bitorder='big'
 void uncompress_binary_char (
     unsigned char *bin, unsigned char *raw, int n_raw
 ) {
@@ -345,6 +334,7 @@ void permutation (int n, int *arr) {
 
 }
 
+// Algorithm for sampling without replacement
 void sample (int n_pop, int n_samp, int *arr) {
 
   int i_pop = 0;
@@ -374,6 +364,26 @@ void sample (int n_pop, int n_samp, int *arr) {
 
   }
 
+}
+
+// Generate random real between 0 and 1 based on the SHR3 Xorshift random number
+// generator developed by George Marsaglia and implemented by John Burkhardt.
+// See <https://people.sc.fsu.edu/~jburkardt/c_src/ziggurat/ziggurat.html>.
+float r4_uni (uint32_t *jsr) {
+
+  uint32_t jsr_input;
+  float value;
+
+  jsr_input = *jsr;
+
+  *jsr = ( *jsr ^ ( *jsr <<   13 ) );
+  *jsr = ( *jsr ^ ( *jsr >>   17 ) );
+  *jsr = ( *jsr ^ ( *jsr <<    5 ) );
+
+  value = fmod ( 0.5 
+    + ( float ) ( jsr_input + *jsr ) / 65536.0 / 65536.0, 1.0 );
+
+  return value;
 }
 
 //==============================================================================
@@ -616,6 +626,7 @@ void setup_parameters (int argc, char *argv[]) {
   if (X_dir[strlen(X_dir)-1] == '/')
     X_dir[strlen(X_dir)-1] = '\0';
   
+  // Pattern directory must contain pattern statistics in a strict format
   strcpy(name, X_dir);
   token = strtok(name, "/-_.");
   while (token != NULL) {
@@ -659,6 +670,7 @@ void setup_parameters (int argc, char *argv[]) {
   }
 
 
+  // Setting random number seed using time
   if (r4seed == 0) {
     r4seed = (uint32_t)(time(NULL) % 1048576);
     place = 1;
@@ -668,6 +680,7 @@ void setup_parameters (int argc, char *argv[]) {
     }
   }
 
+  // Number of packed bytes that contains pattern of length N
   N_bin = (N-1)/8 + 1;
 
 
@@ -1022,13 +1035,16 @@ void plan_updates (unsigned char *S, int *q_update) {
 
   switch (update_type) {
 
+    // update neurons in sequence
     case sequential :
       break;
 
+    // update one neuron per update cycle in random order
     case block_random :
       permutation(N, q_update);
       break;
 
+    // update neurons randomly
     case full_random :
       for (t_cycle = 0; t_cycle < N; t_cycle++)
         q_update[t_cycle] = (int) ((double)RUNI * N); 

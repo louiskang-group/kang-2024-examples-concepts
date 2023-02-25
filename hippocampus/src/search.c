@@ -1,17 +1,17 @@
 /*******************************************************************************
  *
- *  FILE:         dynamics.c
+ *  FILE:         search.c
  *
  *  DATE:         24 February 2023
  *
- *  AUTHORS:      Louis Kang, University of Pennsylvania
+ *  AUTHOR:       Louis Kang
  *
  *  LICENSING:  
  *
  *  REFERENCE:  
  *
- *  PURPOSE:      Simulating a Hopfield model with dual encodings. The
- *                inhibition level can vary over time.
+ *  PURPOSE:      Simulating a Hopfield model with dual encodings. A search over
+ *                the inhibition level can be performed to maximize overlap.
  *
  *  DEPENDENCIES: Intel oneAPI MKL
  *
@@ -34,68 +34,75 @@
 // Parameters and global variables
 //==============================================================================
 
+// See Reading in parameters section for the syntax for setting parameters as
+// command line arguments.
 
 // Random ----------------------------------------------------------------------
-uint32_t r4seed = 0;
+uint32_t r4seed = 0;      // 0: use time as random seed
 #define RUNI r4_uni(&r4seed)
 
 // Iterations and time ---------------------------------------------------------
-int T_sim = 100;
-int T_rec = 10;
-int T_subcycle = 0;
+int T_sim = 100;    // Main simulation timesteps
+int T_rec = 10;     // Print every tscreen timesteps
 enum sequence_type {sequential, block_random, full_random};
 enum sequence_type update_type = block_random;
 
 // Network ---------------------------------------------------------------------
-int N;
-int p = 1;        
-int s = 10;      
+int N;                // number of neurons
+int p = 1;            // number of categories stored
+int s = 10;           // number of examples per category stored
 int N_bin;
-int p_max;
-int s_max;
-float g = 0.1;
-float beta = 0.;
-float a_sparse;
-float a_dense;
+int p_max;            // number of categories in file
+int s_max;            // number of examples per category in file
+float g = 0.1;        // dense pattern strength; half of the corresponding value
+                      //   in the manuscript.
+float beta = 0.;      // rescaled inverse temperature
+float a_sparse;       // sparse pattern sparsity
+float a_dense;        // dense pattern sparsity
 float a_fac;
 
 float *w;
-float f = 0.;     // strength of cue as input during retrieval
-
-// Theta -----------------------------------------------------------------------
-float *theta;
-enum function_type {ramp, sine, square, file};
-enum function_type theta_type = ramp;
-float theta_start = 0.6;
-float theta_end = 0.6;
-int T_theta = 6;
-char theta_name[256];
-int cycle_theta = 0;
 
 // Pattern ---------------------------------------------------------------------
 char X_dir[256] = "";
-int n_cue = 100;        
-enum pattern_type {sparse, dense, cat};
-float incomp = 0.;
-float inacc = 0.;
+int n_cue = 100;
+enum pattern_type {sparse, dense, cat, both};
+enum pattern_type cue_type = sparse;
+enum pattern_type target_type = sparse;
+float incomp = 0.;   // fraction of active neurons to inactivate in cue
+float inacc = 0.;    // fraction of random flips in cue
 
 int sparse_file, dense_file, cat_file;
-int *q_mu, *q_nu, *q_cue;
-int mu_cue, nu_cue;
-unsigned char ***X_sparse, **X_dense, **X_cat;
-unsigned char *X_cue, *X_bin;
+int shuffle_patterns = 1;
+int *q_mu, *q_nu;
+unsigned char **X_sparse, **X_dense, **X_cat;
+unsigned char **X_cue, **X_target;
+unsigned char *X_bin;
 
 // Recording -------------------------------------------------------------------
-FILE *S_file, *a_file;
-FILE *overlap_sparse_file, *overlap_cat_file, *overlap_other_file;
+FILE *S_file, *a_file, *overlap_custom_file, *overlap_classic_file;
 unsigned char *S_bin;
-double *overlap_smean, *overlap_cmean;
+double overlap_start, overlap_end;
 
+// Theta search ----------------------------------------------------------------
+int search_over_theta = 1;
+float theta_mid = 0.;
+int n_round = 2;
+int n_value = 4;
+
+float theta_sim;
+float theta_max;
+double overlap_max;
+float *theta_search;
+double *overlap_search;
 enum overlap_type {classic, custom};
-enum overlap_type record_type = classic;
+enum overlap_type criterion_type = classic;
+
+int T_search = 3;
+int n_search = 20;
 
 // I/O -------------------------------------------------------------------------
-char fileroot[256] = "";
+char fileroot[256] = "";  // Output filename root
 int save_activity = 0;
 int stat_screen = 1;
 int stat_log = 1;
@@ -178,6 +185,7 @@ void print_err (char *format, ...) {
 }
 
 
+// Circularly rotate byte c by n places leftward
 static inline unsigned char rotl (unsigned char c, unsigned int n) {
 
   n &= 7;
@@ -185,6 +193,7 @@ static inline unsigned char rotl (unsigned char c, unsigned int n) {
 
 }
 
+// Circularly rotate byte c by n places rightward
 static inline unsigned char rotr (unsigned char c, unsigned int n) {
 
   n &= 7;
@@ -192,6 +201,7 @@ static inline unsigned char rotr (unsigned char c, unsigned int n) {
 
 }
 
+// Implements np.packbits with bitorder='big'
 void compress_binary_char (
     unsigned char *raw, unsigned char *bin, int n_raw
 ) {
@@ -206,6 +216,7 @@ void compress_binary_char (
 
 }
 
+// Implements np.unpackbits with bitorder='big'
 void uncompress_binary_char (
     unsigned char *bin, unsigned char *raw, int n_raw
 ) {
@@ -230,22 +241,6 @@ void output_int_list(int *list, int n, char *extname) {
 
   for (i = 0; i < n; i++)
     fprintf(file, "%d ", list[i]); 
-
-  fclose(file);
-
-}
-
-void output_float_list(float *list, int n, char *extname) {
-
-  char name[256];
-  FILE *file;
-  int i;
-
-  sprintf(name, "%s_%s.txt", fileroot, extname);
-  file = fopen(name, "w");
-
-  for (i = 0; i < n; i++)
-    fprintf(file, "%f ", list[i]); 
 
   fclose(file);
 
@@ -287,7 +282,6 @@ void output_float_1darray(float *arr, int ni, int nj, int incj, char *extname) {
 
 }
 
-
 //==============================================================================
 // END I/O utility functions
 //==============================================================================
@@ -325,6 +319,26 @@ static inline void swap (int *a, int *b) {
 
 } 
 
+// Generate random real between 0 and 1 based on the SHR3 Xorshift random number
+// generator developed by George Marsaglia and implemented by John Burkhardt.
+// See <https://people.sc.fsu.edu/~jburkardt/c_src/ziggurat/ziggurat.html>.
+float r4_uni (uint32_t *jsr) {
+
+  uint32_t jsr_input;
+  float value;
+
+  jsr_input = *jsr;
+
+  *jsr = ( *jsr ^ ( *jsr <<   13 ) );
+  *jsr = ( *jsr ^ ( *jsr >>   17 ) );
+  *jsr = ( *jsr ^ ( *jsr <<    5 ) );
+
+  value = fmod ( 0.5 
+    + ( float ) ( jsr_input + *jsr ) / 65536.0 / 65536.0, 1.0 );
+
+  return value;
+}
+
 void permutation (int n, int *arr) {
   
   int i, j;
@@ -339,6 +353,7 @@ void permutation (int n, int *arr) {
 
 }
 
+// Algorithm for sampling without replacement
 void sample (int n_pop, int n_samp, int *arr) {
 
   int i_pop = 0;
@@ -368,23 +383,6 @@ void sample (int n_pop, int n_samp, int *arr) {
 
   }
 
-}
-
-float r4_uni (uint32_t *jsr) {
-
-  uint32_t jsr_input;
-  float value;
-
-  jsr_input = *jsr;
-
-  *jsr = ( *jsr ^ ( *jsr <<   13 ) );
-  *jsr = ( *jsr ^ ( *jsr >>   17 ) );
-  *jsr = ( *jsr ^ ( *jsr <<    5 ) );
-
-  value = fmod ( 0.5 
-    + ( float ) ( jsr_input + *jsr ) / 65536.0 / 65536.0, 1.0 );
-
-  return value;
 }
 
 //==============================================================================
@@ -442,47 +440,44 @@ void read_parameters (int argc, char *argv[]) {
     } else if (!strcmp(argv[narg],"-beta")) {
       sscanf(argv[narg+1],"%f",&beta);
       narg += 2;
-    } else if (!strcmp(argv[narg],"-field")) {
-      sscanf(argv[narg+1],"%f",&f);
-      narg += 2;
-    } else if (!strcmp(argv[narg],"-ramp")) {
-      theta_type = ramp;
-      narg++;
-    } else if (!strcmp(argv[narg],"-sine")) {
-      theta_type = sine;
-      narg++;
-    } else if (!strcmp(argv[narg],"-square")) {
-      theta_type = square;
-      narg++;
-    } else if (!strcmp(argv[narg],"-theta_range")) {
-      sscanf(argv[narg+1],"%f",&theta_start);
-      sscanf(argv[narg+2],"%f",&theta_end);
-      sscanf(argv[narg+3],"%d",&T_theta);
-      narg += 4;
-    } else if (!strcmp(argv[narg],"-theta_file")) {
-      sscanf(argv[narg+1],"%s",theta_name);
-      theta_type = file;
-      narg += 2;
-    } else if (!strcmp(argv[narg],"-cycle_theta")) {
-      cycle_theta = 1;
-      narg++;
     }
 
     else if (!strcmp(argv[narg],"-X_dir")) {
       sscanf(argv[narg+1],"%s",X_dir);
       narg += 2;
+    } else if (!strcmp(argv[narg],"-no_shuffle")) {
+      shuffle_patterns = 0;
+      narg++;
     } else if (!strcmp(argv[narg],"-n_cue")) {
       sscanf(argv[narg+1],"%d",&n_cue);
       narg += 2;
+    } else if (!strcmp(argv[narg],"-sparse_cue")) {
+      cue_type = sparse;
+      narg++;
+    } else if (!strcmp(argv[narg],"-dense_cue")) {
+      cue_type = dense;
+      narg++;
+    } else if (!strcmp(argv[narg],"-category_cue")) {
+      cue_type = cat;
+      narg++;
+    } else if (!strcmp(argv[narg],"-both_cue")) {
+      cue_type = both;
+      narg++;
+    } else if (!strcmp(argv[narg],"-sparse_target")) {
+      target_type = sparse;
+      narg++;
+    } else if (!strcmp(argv[narg],"-dense_target")) {
+      target_type = dense;
+      narg++;
+    } else if (!strcmp(argv[narg],"-category_target")) {
+      target_type = cat;
+      narg++;
     } else if (!strcmp(argv[narg],"-incomp")) {
       sscanf(argv[narg+1],"%f",&incomp);
       narg += 2;
     } else if (!strcmp(argv[narg],"-inacc")) {
       sscanf(argv[narg+1],"%f",&inacc);
       narg += 2;
-    } else if (!strcmp(argv[narg],"-single_flip")) {
-      inacc = -1.;
-      narg++;
     } else if (!strcmp(argv[narg],"-noiseless")) {
       incomp = 0.;
       inacc = 0.;
@@ -506,12 +501,39 @@ void read_parameters (int argc, char *argv[]) {
     } else if (!strcmp(argv[narg],"-no_activity")) {
       save_activity = 0;
       narg++;
+    }
+
+    else if (!strcmp(argv[narg],"-search")) {
+      search_over_theta = 1;
+      narg++;
+    } else if (!strcmp(argv[narg],"-no_search")) {
+      search_over_theta = 0;
+      narg++;
     } else if (!strcmp(argv[narg],"-custom_overlap")) {
-      record_type = custom;
+      criterion_type = custom;
       narg++;
     } else if (!strcmp(argv[narg],"-classic_overlap")) {
-      record_type = classic;
+      criterion_type = classic;
       narg++;
+    } else if (!strcmp(argv[narg],"-theta")) {
+      sscanf(argv[narg+1],"%f",&theta_mid);
+      search_over_theta = 0;
+      narg += 2;
+    } else if (!strcmp(argv[narg],"-theta_mid")) {
+      sscanf(argv[narg+1],"%f",&theta_mid);
+      narg += 2;
+    } else if (!strcmp(argv[narg],"-n_round")) {
+      sscanf(argv[narg+1],"%d",&n_round);
+      narg += 2;
+    } else if (!strcmp(argv[narg],"-n_value")) {
+      sscanf(argv[narg+1],"%d",&n_value);
+      narg += 2;
+    } else if (!strcmp(argv[narg],"-T_search")) {
+      sscanf(argv[narg+1],"%d",&T_search);
+      narg += 2;
+    } else if (!strcmp(argv[narg],"-n_search")) {
+      sscanf(argv[narg+1],"%d",&n_search);
+      narg += 2;
     }
 
 
@@ -533,35 +555,37 @@ void print_parameters () {
   sprintf(name, "%s_params.txt", fileroot);
   file = fopen(name, "w");
 
-  fprintf(file, "seed            = %d\n", r4seed);
+  fprintf(file, "seed             = %d\n", r4seed);
 
   fprintf(file, "\n");
-  fprintf(file, "T_sim           = %d\n", T_sim);
-  fprintf(file, "T_rec           = %d\n", T_rec);
-  fprintf(file, "update_type     = %d\n", update_type);
+  fprintf(file, "T_sim            = %d\n", T_sim);
+  fprintf(file, "T_rec            = %d\n", T_rec);
+  fprintf(file, "update_type      = %d\n", update_type);
 
   fprintf(file, "\n");
-  fprintf(file, "N               = %d\n", N);
-  fprintf(file, "p               = %d\n", p);
-  fprintf(file, "s               = %d\n", s);
-  fprintf(file, "gamma           = %f\n", g);
-  fprintf(file, "beta            = %f\n", beta);
-  fprintf(file, "field           = %f\n", f);
+  fprintf(file, "N                = %d\n", N);
+  fprintf(file, "p                = %d\n", p);
+  fprintf(file, "s                = %d\n", s);
+  fprintf(file, "gamma            = %f\n", g);
+  fprintf(file, "beta             = %f\n", beta);
 
   fprintf(file, "\n");
-  fprintf(file, "theta_type      = %d\n", theta_type);
-  fprintf(file, "theta_start     = %f\n", theta_start);
-  fprintf(file, "theta_end       = %f\n", theta_end);
-  fprintf(file, "T_theta         = %d\n", T_theta);
-  fprintf(file, "theta_file      = %s\n", theta_name);
-  fprintf(file, "cycle_theta     = %d\n", cycle_theta);
+  fprintf(file, "X_dir            = %s\n", X_dir);
+  fprintf(file, "shuffle_patterns = %d\n", shuffle_patterns);
+  fprintf(file, "n_cue            = %d\n", n_cue);
+  fprintf(file, "cue_type         = %d\n", cue_type);
+  fprintf(file, "target_type      = %d\n", target_type);
+  fprintf(file, "incomp           = %f\n", incomp);
+  fprintf(file, "inacc            = %f\n", inacc);
 
   fprintf(file, "\n");
-  fprintf(file, "X_dir           = %s\n", X_dir);
-  fprintf(file, "n_cue           = %d\n", n_cue);
-  fprintf(file, "incomp          = %f\n", incomp);
-  fprintf(file, "inacc           = %f\n", inacc);
-  fprintf(file, "record_type     = %d\n", record_type);
+  fprintf(file, "search           = %d\n", search_over_theta);
+  fprintf(file, "criterion_type   = %d\n", criterion_type);
+  fprintf(file, "theta_mid        = %f\n", theta_mid);
+  fprintf(file, "n_round          = %d\n", n_round);
+  fprintf(file, "n_value          = %d\n", n_value);
+  fprintf(file, "T_search         = %d\n", T_search);
+  fprintf(file, "n_search         = %d\n", n_search);
 
   fclose(file);
 
@@ -598,6 +622,7 @@ void setup_parameters (int argc, char *argv[]) {
   if (X_dir[strlen(X_dir)-1] == '/')
     X_dir[strlen(X_dir)-1] = '\0';
   
+  // Pattern directory must contain pattern statistics in a strict format
   strcpy(name, X_dir);
   token = strtok(name, "/-_.");
   while (token != NULL) {
@@ -641,6 +666,7 @@ void setup_parameters (int argc, char *argv[]) {
   }
 
 
+  // Setting random number seed using time
   if (r4seed == 0) {
     r4seed = (uint32_t)(time(NULL) % 1048576);
     place = 1;
@@ -650,13 +676,13 @@ void setup_parameters (int argc, char *argv[]) {
     }
   }
 
+  // Number of packed bytes that contains pattern of length N
   N_bin = (N-1)/8 + 1;
 
 
   print_parameters();
 
 }
-
 
 //==============================================================================
 // END Parameters
@@ -706,32 +732,36 @@ void setup_patterns () {
     exit(1);
   }
 
-
+  
+  // q_mu contains indices of stored concepts
   q_mu = malloc(p * sizeof(int));
-  sample(p_max, p, q_mu);
+  if (shuffle_patterns)
+    sample(p_max, p, q_mu);
+  else
+    for (mu = 0; mu < p; mu++)
+      q_mu[mu] = mu;
   output_int_list(q_mu, p, "qmu");
 
+  // q_mu contains indices of stored examples in each concept
   q_nu = malloc(s * sizeof(int));
-  sample(s_max, s, q_nu);
+  if (shuffle_patterns)
+    sample(s_max, s, q_nu);
+  else
+    for (nu = 0; nu < s; nu++)
+      q_nu[nu] = nu;
   output_int_list(q_nu, s, "qnu");
 
 
-  X_bin = malloc(N_bin * sizeof(char));
-  X_cue = malloc(N * sizeof(char));
-
-  X_sparse = malloc(p * sizeof(char **));
-  for (mu = 0; mu < p; mu++) {
-    X_sparse[mu] = malloc(s * sizeof(char *));
-    for (nu = 0; nu < s; nu++)
-      X_sparse[mu][nu] = malloc(N * sizeof(char));
-  }
+  // X_sparse and X_dense contain sparse and dense examples
+  X_bin = malloc(N_bin * sizeof(char *));
+  X_sparse = malloc(s * sizeof(char *));
+  for (nu = 0; nu < s; nu++)
+    X_sparse[nu] = malloc(N * sizeof(char));
   X_dense = malloc(s * sizeof(char *));
   for (nu = 0; nu < s; nu++)
     X_dense[nu] = malloc(N * sizeof(char));
-  X_cat = malloc(p * sizeof(char *));
-  for (mu = 0; mu < p; mu++)
-    X_cat[mu] = malloc(N * sizeof(char));
 
+  // w is the (flattened) connectivity matrix
   X_combo = mkl_malloc(s*N * sizeof(float), 64);
   w = mkl_calloc(N*N, sizeof(float *), 64);
 
@@ -740,20 +770,20 @@ void setup_patterns () {
 
     print_screen("%3d/%3d categories stored...\r", mu, p);
 
-    read_pattern(X_cat[mu], cat_file, mu, -1);
-
     for (nu = 0; nu < s; nu++) {
 
-      read_pattern(X_sparse[mu][nu], sparse_file, mu, nu);
-      read_pattern(X_dense     [nu], dense_file , mu, nu);
+      read_pattern(X_sparse[nu], sparse_file, mu, nu);
+      read_pattern(X_dense [nu], dense_file , mu, nu);
 
     }
 
+    // Note that 2*g is the dense strength zeta in the manuscript
     for (nu = 0; nu < s; nu++)
       for (i = 0; i < N; i++)
-        X_combo[nu*N+i] =   (1.-2.*g) * (X_sparse[mu][nu][i] - a_sparse)
-                          + (   2.*g) * (X_dense     [nu][i] - a_dense );
+        X_combo[nu*N+i] =   (1.-2.*g) * (X_sparse[nu][i] - a_sparse)
+                          + (   2.*g) * (X_dense [nu][i] - a_dense );
 
+    // Add X_combo multiplied with its transpose to w
     cblas_ssyrk(CblasRowMajor, CblasUpper, CblasTrans,
                 N, s, 1./N, X_combo, N, 1., w, N     );
 
@@ -769,42 +799,74 @@ void setup_patterns () {
  
   output_float_1darray(w, fmini(N,100), fmini(N,100), N, "wsample");
 
-  free(X_bin);
+  for (nu = 0; nu < s; nu++)
+    free(X_sparse[nu]);
+  free(X_sparse);
   for (nu = 0; nu < s; nu++)
     free(X_dense[nu]);
   free(X_dense);
   mkl_free(X_combo);
 
-  close(sparse_file);
-  close(dense_file);
-  close(cat_file);
   
-
+  // Theoretically motiviated rescaling of beta
   a_fac = (1.-2.*g)*(1.-2.*g) * a_sparse;
   beta /= a_fac;
 
 }
 
 
+void setup_cue_target (unsigned char **X, int *q_cue, enum pattern_type type) {
+
+  unsigned char *X_buf;
+  int nu_cue, i;
+
+  switch (type) {
+
+    case sparse :
+      for (nu_cue = 0; nu_cue < n_cue; nu_cue++)
+        read_pattern(X[nu_cue], sparse_file, q_cue[nu_cue]/s, q_cue[nu_cue]%s);
+      break;
+
+    case dense :
+      for (nu_cue = 0; nu_cue < n_cue; nu_cue++)
+        read_pattern(X[nu_cue], dense_file, q_cue[nu_cue]/s, q_cue[nu_cue]%s);
+      break;
+
+    case cat :
+      for (nu_cue = 0; nu_cue < n_cue; nu_cue++)
+        read_pattern(X[nu_cue], cat_file, q_cue[nu_cue]/s, -1);
+      break;
+
+    case both :
+      X_buf = malloc(N * sizeof(char));
+      for (nu_cue = 0; nu_cue < n_cue; nu_cue++) {
+        read_pattern(X[nu_cue], sparse_file, q_cue[nu_cue]/s, q_cue[nu_cue]%s);
+        read_pattern(X_buf,     dense_file,  q_cue[nu_cue]/s, q_cue[nu_cue]%s);
+        for (i = 0; i < N; i++)
+          X[nu_cue][i] |= X_buf[i];
+      }
+      break;
+
+  }
+  
+}
 
 
+// Variables shared among cues
 void setup_network_shared () {
 
+  int *q_cue;
+
   char name[256];
-  int i_rec, i_cue;
+  int i_rec, nu_cue;
  
 
-  if (T_rec > 0) {
-    T_subcycle = N;
-    T_rec = fmini(T_rec, T_sim);
-  } else if (T_rec < 0) {
-    T_subcycle = N / (-T_rec);
-    T_rec = 1;
-  } else {
-    T_subcycle = N;
-    T_rec = T_sim;
-  }
+  // Record data every T_rec update cycles
+  T_rec = fmini(T_rec, T_sim);
+  overlap_start = 0.;
+  overlap_end = 0.;
 
+  // Save raw network activities as packed binary file
   if (save_activity) {
     S_bin = malloc(N_bin * sizeof(char));
     sprintf(name, "%s_s.dat", fileroot);
@@ -812,31 +874,69 @@ void setup_network_shared () {
   }
   sprintf(name, "%s_a.txt", fileroot);
   a_file = fopen(name, "w");
-  sprintf(name, "%s_msparse.txt", fileroot);
-  overlap_sparse_file = fopen(name, "w");
-  sprintf(name, "%s_mcategory.txt", fileroot);
-  overlap_cat_file = fopen(name, "w");
-  sprintf(name, "%s_mother.txt", fileroot);
-  overlap_other_file = fopen(name, "w");
+  sprintf(name, "%s_mcustom.txt", fileroot);
+  overlap_custom_file = fopen(name, "w");
+  sprintf(name, "%s_mclassic.txt", fileroot);
+  overlap_classic_file = fopen(name, "w");
 
 
   print_stat("Testing %d cues\n", n_cue);
   q_cue = malloc(n_cue * sizeof(int));
 
-  sample(p*s, fmini(n_cue, p*s), q_cue);
-  for (i_cue = p*s; i_cue < n_cue; i_cue++)
-    q_cue[i_cue] = q_cue[i_cue%(p*s)];
+  if (cue_type == cat && target_type == cat) {
+
+    if (shuffle_patterns)
+      sample(p, fmini(n_cue, p), q_cue);
+    else
+      for (nu_cue = 0; nu_cue < fmini(n_cue, p); nu_cue++)
+        q_cue[nu_cue] = nu_cue;
+
+    // Cycle through patterns if fewer than n_cue are stored
+    for (nu_cue = p; nu_cue < n_cue; nu_cue++)
+      q_cue[nu_cue] = q_cue[nu_cue%p];
+
+    // Sets q_cue to first example in each selected concept; example identity
+    // doesn't matter since we are only interested in cat cues and targets
+    for (nu_cue = 0; nu_cue < n_cue; nu_cue++)
+      q_cue[nu_cue] *= s;
+
+  } else {
+
+    if (shuffle_patterns)
+      sample(p*s, fmini(n_cue, p*s), q_cue);
+    else
+      for (nu_cue = 0; nu_cue < fmini(n_cue, p*s); nu_cue++)
+        q_cue[nu_cue] = (nu_cue%p) * s + nu_cue/p;
+
+    for (nu_cue = p*s; nu_cue < n_cue; nu_cue++)
+      q_cue[nu_cue] = q_cue[nu_cue%(p*s)];
+
+  }
 
   output_int_list(q_cue, n_cue, "qcue");
 
-  
-  overlap_smean = calloc(T_sim+1, sizeof(double));
-  overlap_cmean = calloc(T_sim+1, sizeof(double));
 
+  X_cue = malloc(n_cue * sizeof(char *));
+  for (nu_cue = 0; nu_cue < n_cue; nu_cue++)
+    X_cue[nu_cue] = malloc(N * sizeof(char));
+
+  X_target = malloc(n_cue * sizeof(char *));
+  for (nu_cue = 0; nu_cue < n_cue; nu_cue++)
+    X_target[nu_cue] = malloc(N * sizeof(char));
+
+
+  setup_cue_target(X_cue   , q_cue, cue_type   );
+  setup_cue_target(X_target, q_cue, target_type);
+
+  free(q_cue);
+   
 } 
 
-
-void setup_network_private (unsigned char **S, int **q_update) {
+// Variables private to each cue; can potentially be parallelized, but not
+// implemented here
+void setup_network_private (
+    unsigned char **S, int **q_update, float *theta, float theta_base
+) {
 
   int t_cycle;
 
@@ -845,22 +945,23 @@ void setup_network_private (unsigned char **S, int **q_update) {
   *q_update = malloc(N * sizeof(int));
   for (t_cycle = 0; t_cycle < N; t_cycle++)
     (*q_update)[t_cycle] = t_cycle;
+
+  *theta = theta_base * a_fac;
    
 } 
 
 void cleanup_shared () {
 
   fclose(stat_file);
+  close(sparse_file);
+  close(dense_file);
+  close(cat_file);
 
   if (save_activity)
     fclose(S_file);
   fclose(a_file);
-  fclose(overlap_sparse_file);
-  fclose(overlap_cat_file);
-  fclose(overlap_other_file);
-
-  free(overlap_smean);
-  free(overlap_cmean);
+  fclose(overlap_custom_file);
+  fclose(overlap_classic_file);
 
 }
 
@@ -871,126 +972,8 @@ void cleanup_private (unsigned char *S, int *q_update) {
 
 }
 
-
 //==============================================================================
 // END Setup
-//==============================================================================
-
-
-
-//==============================================================================
-// Theta
-//==============================================================================
-
-void ramp_theta () {
-
-  int t;
-  float tt;
-
-  for (t = 0; t < T_theta; t++) {
-    tt = (float)t / T_theta;
-    theta[t] = theta_start + (theta_end-theta_start) * tt;
-  }
-  for (; t < T_sim; t++)
-    theta[t] = theta_end;
-
-}
-
-void sine_theta () {
-
-  int t;
-  float tt;
-
-  for (t = 0; t < T_theta; t++) {
-    tt = (float)t / T_theta;
-    theta[t] = theta_end + (theta_start-theta_end)
-                                * (cos(2.*M_PI*tt) + 1.) / 2.;
-  }
-  for (; t < T_sim; t++)
-    theta[t] = theta[t%T_theta];
-
-}
-
-void square_theta () {
-
-  int t;
-
-  for (t = 0; t < T_theta; t++)
-    theta[t] = theta_start + (theta_end-theta_start) * (t/(T_theta/2));
-  for (; t < T_sim; t++)
-    theta[t] = theta[t%T_theta];
-
-}
-
-void read_theta () {
-
-  FILE *file;
-  int t;
-
-  if ((file = fopen(theta_name, "r")) == NULL) {
-    print_err("Error opening theta file %s\n", theta_name);
-    exit(1);
-  }
-
-  for (t = 0; t < T_sim; t++)
-    if (fscanf(file, "%f", &theta[t]) != 1)
-      break;
-
-  if (t == 0) {
-    print_err("Error reading theta file\n");
-    exit(1);
-  }
-
-  T_theta = t;
-  if (cycle_theta)
-    for (; t < T_sim; t++) 
-      theta[t] = theta[t%T_theta];
-  else
-    for (; t < T_sim; t++) 
-      theta[t] = theta[T_theta-1];
-
-  fclose(file);
-
-}
-
-
-void setup_theta () {
-
-  int t;
-
-  theta = calloc(T_sim, sizeof(float));
- 
-  switch (theta_type) {
-
-    case ramp :
-      ramp_theta();
-      break;
-    case sine :
-      sine_theta();
-      break;
-    case square :
-      square_theta();
-      break;
-    case file :
-      read_theta();
-      break;
-
-  } 
-
-  print_stat("Theta values: ");
-  for (t = 0; t < T_sim; t++)
-    print_stat("%3.2f ", theta[t]);
-  print_stat("\n");
-
-  output_float_list(theta, T_sim, "theta");
-
-  for (t = 0; t < T_sim; t++)
-    theta[t] *= a_fac;
-
-}
-
-//==============================================================================
-// END Theta
 //==============================================================================
 
 
@@ -999,20 +982,18 @@ void setup_theta () {
 // Dynamics
 //==============================================================================
 
-void initialize_activity (int i_cue, unsigned char *S) {
+void initialize_activity (int nu_cue, unsigned char *S) {
 
   int n_active, n_incomp, n_inacc;
   int *q_active, *q_incomp, *q_inacc;
 
   int i, k;
 
-
-  mu_cue = q_cue[i_cue]/s;
-  nu_cue = q_cue[i_cue]%s;
-
+  // Initialize network to cue
   for (i = 0; i < N; i++)
-    S[i] = X_sparse[mu_cue][nu_cue][i];
+    S[i] = X_cue[nu_cue][i];
 
+  // Randomly deactivate neurons
   if (incomp > 0.) {
 
     n_active = 0;
@@ -1036,10 +1017,7 @@ void initialize_activity (int i_cue, unsigned char *S) {
 
   }
 
-  if (inacc < 0.) {
-    inacc = 1./N;
-    print_stat("Initializing cues with single spin flip\n");
-  }
+  // Randomly flip neurons between active and inactive
   if (inacc > 0.) {
 
     n_inacc = lrint(inacc * N);
@@ -1054,8 +1032,6 @@ void initialize_activity (int i_cue, unsigned char *S) {
     }
 
   }
-  
-  memcpy(X_cue, S, N*sizeof(char));
 
 } 
 
@@ -1066,13 +1042,16 @@ void plan_updates (unsigned char *S, int *q_update) {
 
   switch (update_type) {
 
+    // update neurons in sequence
     case sequential :
       break;
 
+    // update one neuron per update cycle in random order
     case block_random :
       permutation(N, q_update);
       break;
 
+    // update neurons randomly
     case full_random :
       for (t_cycle = 0; t_cycle < N; t_cycle++)
         q_update[t_cycle] = (int) ((double)RUNI * N); 
@@ -1083,6 +1062,7 @@ void plan_updates (unsigned char *S, int *q_update) {
 }
 
 
+// Glauber dynamics
 void update_activity (unsigned char *S, int q, float theta) {
 
   float h;
@@ -1093,15 +1073,13 @@ void update_activity (unsigned char *S, int q, float theta) {
   for (j = 0; j < N; j++)
     h += w[(long int)q*N+j] * S[j];
   h -= theta;
-  h += f * X_cue[q];
-
+  
   if (beta <= 0.)
     S[q] = step( h );
   else
     S[q] = step( 1./(1. + exp(-beta * h)) - RUNI );
 
 } 
-
 
 //==============================================================================
 // END Dynamics
@@ -1112,7 +1090,6 @@ void update_activity (unsigned char *S, int q, float theta) {
 //==============================================================================
 // Recording
 //==============================================================================
-
 
 float calculate_sparseness (unsigned char *S) {
 
@@ -1129,8 +1106,9 @@ float calculate_sparseness (unsigned char *S) {
 
 } 
 
+// Only classic overlap was used in the manuscript
 double calculate_overlap (
-    unsigned char *S, unsigned char *X, enum pattern_type type
+    unsigned char *S, unsigned char *X, enum overlap_type type
 ) {
 
   double sum, dot, overlap;
@@ -1141,7 +1119,7 @@ double calculate_overlap (
   sum = 0.;
   dot = 0.; 
   
-  switch (record_type) {
+  switch (type) {
     
     case custom :
 
@@ -1154,7 +1132,7 @@ double calculate_overlap (
 
     case classic :
 
-      if (type == sparse)
+      if (target_type == sparse)
         a = a_sparse;
       else
         a = a_dense;
@@ -1171,13 +1149,10 @@ double calculate_overlap (
 
 }
 
+void record_activity (int t, int nu_cue, unsigned char *S) {
 
-void record_subcycle (unsigned char *S) {
+  double overlap_custom, overlap_classic;
 
-  double overlap;
-  int mu, nu;
-
-  
   if (save_activity) {
     compress_binary_char(S, S_bin, N);
     fwrite(S_bin, sizeof(char), N_bin, S_file);
@@ -1185,57 +1160,25 @@ void record_subcycle (unsigned char *S) {
 
   fprintf(a_file, "%.2e ", calculate_sparseness(S));
 
-  overlap = calculate_overlap(S, X_sparse[mu_cue][nu_cue], sparse);
-  fprintf(overlap_sparse_file, "% 4.3f ", overlap);
+  overlap_custom  = calculate_overlap(S, X_target[nu_cue], custom );
+  overlap_classic = calculate_overlap(S, X_target[nu_cue], classic);
 
-  for (nu = 0; nu < s; nu++) {
-    if (nu == nu_cue)
-      continue;
-    overlap = calculate_overlap(S, X_sparse[mu_cue][nu], sparse);
-    fprintf(overlap_sparse_file, "% 4.3f ", overlap);
-  }
-  fprintf(overlap_sparse_file, "\n");
+  fprintf(overlap_custom_file , "% 4.3f ", overlap_custom );
+  fprintf(overlap_classic_file, "% 4.3f ", overlap_classic);
 
-  for (mu = 0; mu < p; mu++) {
-    if (mu == mu_cue)
-      continue;
-    for (nu = 0; nu < s; nu++) {
-      overlap = calculate_overlap(S, X_sparse[mu][nu], sparse);
-      fprintf(overlap_other_file, "% 4.3f ", overlap);
-    }
-  }
-  fprintf(overlap_other_file, "\n");
-
-  overlap = calculate_overlap(S, X_cat[mu_cue], cat);
-  fprintf(overlap_cat_file, "% 4.3f ", overlap);
-
-  for (mu = 0; mu < p; mu++) {
-    if (mu == mu_cue)
-      continue;
-    overlap = calculate_overlap(S, X_cat[mu], cat);
-    fprintf(overlap_cat_file, "% 4.3f ", overlap);
-  }
-  fprintf(overlap_cat_file, "\n");
-
-}
-
-
-void record_cycle (int t, unsigned char *S) {
-
-  double overlap;
-
-  
-  overlap = calculate_overlap(S, X_sparse[mu_cue][nu_cue], sparse);
-  overlap_smean[t] += fabs(overlap) / n_cue;
-
-  overlap = calculate_overlap(S, X_cat[mu_cue], cat);
-  overlap_cmean[t] += fabs(overlap) / n_cue;
+  if (t == 0)
+    overlap_start +=
+        fabs(calculate_overlap(S, X_target[nu_cue], criterion_type))
+            / n_cue;
+  if (t == T_sim)
+    overlap_end +=
+        fabs(calculate_overlap(S, X_target[nu_cue], criterion_type))
+            / n_cue;
 
   if (t == T_sim) {
     fprintf(a_file, "\n");
-    fprintf(overlap_sparse_file, "\n");
-    fprintf(overlap_cat_file, "\n");
-    fprintf(overlap_other_file, "\n");
+    fprintf(overlap_custom_file , "\n");
+    fprintf(overlap_classic_file, "\n");
   }
 
 }
@@ -1246,15 +1189,131 @@ void record_cycle (int t, unsigned char *S) {
 
 
 
+//==============================================================================
+// Search over theta
+//==============================================================================
+
+// These functions allow the network to iteratively search over theta values to
+// optimize overlap with the target pattern to a resolution of 0.01 in theta.
+void plan_search () {
+
+  float theta_width;
+
+  int i_round, i_value;
+
+  n_search = fmini(n_search, n_cue);
+  T_search = fmini(T_search, T_sim);
+
+  // In each search round, n_value theta values are searched. The value that
+  // maximizes overlap with the target pattern is used as the midpoint for the
+  // next round. The range of theta values searched spans from
+  // theta_mid-theta_width to theta_mid+theta_width.
+  theta_width = 0.;
+  for (i_round = 0; i_round < n_round; i_round++)
+    theta_width += 0.01 * pow(n_value-1., i_round+1) / 2.;
+
+  print_stat("Maximizing overlap w.r.t. theta using %d rounds of %d values\n",
+             n_round, n_value);
+  print_stat("Theta search range from %4.3f to %4.3f\n",
+             theta_mid-theta_width, theta_mid+theta_width);
+
+  // Initial (coarsest) search values
+  theta_search = malloc(n_value * sizeof(float));
+  for (i_value = 0; i_value < n_value; i_value++)
+    theta_search[i_value] = theta_mid + 0.01 * pow(n_value-1, n_round-1) *
+                                        (-(n_value-1.)/2. + i_value);
+
+  overlap_search = malloc(n_value * sizeof(double));
+
+}
+
+
+int update_search (int i_round) {
+
+  int q_max1, q_max2;
+  int rounds_left;
+  
+  int i_value;
+
+  // Find argmax of overlap. Allow for tie between q_max1 and q_max2.
+  overlap_max = overlap_search[0];
+  q_max1 = 0;
+  q_max2 = 0;
+  for (i_value = 1; i_value < n_value; i_value++) {
+
+    if (overlap_search[i_value] > overlap_max) {
+      overlap_max = overlap_search[i_value];
+      q_max1 = i_value;
+      q_max2 = i_value;
+    } else if (overlap_search[i_value] == overlap_max)
+      q_max2 = i_value;
+
+  }
+
+  if (q_max1 != q_max2) {
+    print_stat(
+        "Maximum overlap achieved by multiple theta values, reporting mean\n"
+    );
+    theta_max = (theta_search[q_max1] + theta_search[q_max2]) / 2.;
+  } else
+    theta_max = theta_search[q_max1];
+
+  // Stop search if highest overlap is achieved
+  if (overlap_max > 0.9995) {
+    print_stat("Full overlap of 1.000 achieved by theta = %4.3f in round %d\n",
+               theta_max, i_round+1);
+    return 1;
+  } else {
+    print_stat("Mean overlap of %4.3f achieved by theta = %4.3f in round %d\n",
+               overlap_max, theta_max, i_round+1);
+
+    // Update theta_search for the next round with finer values centered around
+    // the best value discovered this round
+    rounds_left = n_round - (i_round+1);
+    if (rounds_left > 0)
+      for (i_value = 0; i_value < n_value; i_value++)
+        theta_search[i_value] = theta_max +
+                                0.01 * pow(n_value-1, rounds_left-1) *
+                                (-(n_value-1.)/2. + i_value);
+
+    return 0;
+  }
+
+}
+
+void print_theta () {
+
+  FILE *file;
+  char name[256];
+
+  sprintf(name, "%s_params.txt", fileroot);
+  file = fopen(name, "a");
+
+  // Save theta value that maximized overlap
+  fprintf(file, "\n");
+  fprintf(file, "theta_max    = %f\n", theta_max);
+
+  fclose(file);
+
+}
+
+//==============================================================================
+// END Search over theta
+//==============================================================================
+
+
+
 
 int main (int argc, char *argv[]) {
 
   unsigned char *S;
   int *q_update;
+  float theta;
 
   clock_t tic, toc;
 
-  int i_cue, t, t_cycle;
+  int i_round, i_value;
+  int nu_cue, t, t_cycle;
 
 
   setup_parameters(argc, argv);
@@ -1263,37 +1322,86 @@ int main (int argc, char *argv[]) {
 
   setup_patterns();
 
-  setup_theta();
-
   setup_network_shared();
 
 
-  
-  print_stat("\nSTARTING SIMULATION\n");
+  // Search over theta to maximize mean overlap with target patterns
+  if (!search_over_theta) 
+    theta_sim = theta_mid;
+  else  {
+
+    plan_search();
+
+    for (i_round = 0; i_round < n_round; i_round++) {
+
+      print_stat("\nSTARTING THETA SEARCH ROUND %d of %d\n\n",
+                 i_round+1, n_round);
+
+      for (i_value = 0; i_value < n_value; i_value++) {
+
+        tic = clock();
+        setup_network_private(&S, &q_update, &theta, theta_search[i_value]);
+        overlap_search[i_value] = 0.;
+        
+        for (nu_cue = 0; nu_cue < n_search; nu_cue++) {
+
+          initialize_activity(nu_cue, S);
+          for (t = 1; t <= T_search; t++) {
+            plan_updates(S, q_update);
+            for (t_cycle = 0; t_cycle < N; t_cycle++) 
+              update_activity(S, q_update[t_cycle], theta);
+          }
+
+          overlap_search[i_value] +=
+              fabs(calculate_overlap(S, X_target[nu_cue], criterion_type))
+                  / n_search;
+
+        }
+
+        cleanup_private(S, q_update);
+        toc = clock();
+        print_stat(
+            "Round %d, theta = %4.3f: done in %.2f s, mean overlap %4.3f\n",
+            i_round+1, theta_search[i_value], (double) (toc-tic)/CLOCKS_PER_SEC,
+            overlap_search[i_value]
+        );
+
+      }
+
+      if (update_search(i_round))
+        break;
+
+    }
+    
+    print_stat("\nTHETA SEARCH: %4.3f ACHIEVES MAXIMUM MEAN OVERLAP %4.3f\n",
+                theta_max, overlap_max);
+    print_theta();
+    theta_sim = theta_max;
+
+  }
+
+
+
+  // Perform final simulation at optimal theta and record data
+  print_stat("\nSTARTING FINAL SIMULATION\n");
 
   tic = clock();
-  setup_network_private(&S, &q_update);
+  setup_network_private(&S, &q_update, &theta, theta_sim);
 
-  for (i_cue = 0; i_cue < n_cue; i_cue++) {
+  for (nu_cue = 0; nu_cue < n_cue; nu_cue++) {
 
-    print_screen("%2d/%2d cues tested...\r", i_cue, n_cue);
+    print_screen("%2d/%2d cues tested...\r", nu_cue, n_cue);
 
-    initialize_activity(i_cue, S);
-    record_subcycle(S);
-    record_cycle(0, S);
+    initialize_activity(nu_cue, S);
+    record_activity(0, nu_cue, S);
     
     for (t = 1; t <= T_sim; t++) {
 
       plan_updates(S, q_update);
-      for (t_cycle = 1; t_cycle <= N; t_cycle++) {
-
-        update_activity(S, q_update[t_cycle-1], theta[t-1]);
-        if (t % T_rec == 0 && t_cycle % T_subcycle == 0)
-          record_subcycle(S);
-
-      }
-
-      record_cycle(t, S);
+      for (t_cycle = 0; t_cycle < N; t_cycle++) 
+        update_activity(S, q_update[t_cycle], theta);
+      if (t % T_rec == 0)
+        record_activity(t, nu_cue, S);
 
     }
 
@@ -1306,13 +1414,9 @@ int main (int argc, char *argv[]) {
   toc = clock();
   print_stat("Done in %.2f s\n", (double) (toc-tic)/CLOCKS_PER_SEC);
 
-  print_stat("Mean sparse   overlaps: ");
-  for (t = 0; t <= T_sim; t++)
-    print_stat("%4.3f ", overlap_smean[t]);
-  print_stat("\n");
-  print_stat("Mean category overlaps: ");
-  for (t = 0; t <= T_sim; t++)
-    print_stat("%4.3f ", overlap_cmean[t]);
+  print_stat("Mean overlap %4.3f --> %4.3f", overlap_start, overlap_end);
+  if (search_over_theta)
+    print_stat(" achieved by theta = %4.3f", theta_sim);
   print_stat("\n");
 
   print_stat("\nSIMULATION COMPLETE\n\n");

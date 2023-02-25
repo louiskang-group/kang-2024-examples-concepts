@@ -23,8 +23,9 @@ for cue in "${cue_types[@]}"; do
 
   for s in ${ss[@]}; do
 
-      arg="./sweep.sh $root-s$s -s $s"
+      arg="./sim.sh $root-s$s -s $s"
       arg+=" -${cue}_cue -${target}_target -theta $theta"
+      arg+=" -no_search -no_shuffle"
       args+=("$arg")
 
     done

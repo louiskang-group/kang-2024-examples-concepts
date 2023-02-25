@@ -10,4 +10,6 @@ Our PyTorch code has been tested on a machine running Ubuntu 20.04 Linux with NV
 
 ## `hippocampus` and `ml` directories
 
-Code concerning the biological model of hippocampal pathways to CA3 and autoassociation in CA3 (Figs. 1–3) is provided in the `hippocampus` directory. Code concerning the application of CA3-like encodings towards machine learning with the DeCorr and HalfCorr loss functions (Fig. 7) is provided in the `ml` directory. Further documentation is included in README files in each directory.
+Code concerning the biological model of hippocampal pathways to CA3 and autoassociation in CA3 (Figs. 1–3) is provided in the `hippocampus` directory. Code concerning the application of CA3-like encodings towards machine learning with the DeCorr and HalfCorr loss functions (Fig. 7) is provided in the `ml` directory. 
+
+Further documentation is included in README files in each directory.

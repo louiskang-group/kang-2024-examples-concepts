@@ -1,0 +1,29 @@
+seed             = 59133747
+
+T_sim            = 10
+T_rec            = 10
+update_type      = 1
+
+N                = 2048
+p                = 3
+s                = 20
+gamma            = 0.050000
+beta             = 100.000000
+
+X_dir            = out_pathways/N2048-p3-s512-a02-2
+shuffle_patterns = 1
+n_cue            = 30
+cue_type         = 0
+target_type      = 0
+incomp           = 0.000000
+inacc            = 0.010000
+
+search           = 1
+criterion_type   = 0
+theta_mid        = 0.500000
+n_round          = 2
+n_value          = 7
+T_search         = 3
+n_search         = 20
+
+theta_max    = 0.500000

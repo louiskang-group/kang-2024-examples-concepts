@@ -4,13 +4,13 @@
 # be provided at the command line and are appended to the end of the command.
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: ./sim.sh fileroot [-flag value ...]"
+  echo "Usage: ./2a_hopfield.sh fileroot [-flag value ...]"
   exit 1
 fi
 
 src/search.o \
-  -fileroot "results/$1" \
-  -X_dir "../1_pathways/results/N2048-p3-s512-a02-2" \
+  -fileroot "out_hopfield/$1" \
+  -X_dir "out_pathways/N2048-p3-s512-a02-2" \
   -p 3 \
   -gamma 0.05 \
   -incomp 0. -inacc 0.01 -beta 100. \

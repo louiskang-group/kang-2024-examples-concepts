@@ -9,8 +9,8 @@ if [[ $# -lt 1 ]]; then
 fi
 
 src/search.o \
-  -fileroot "out_hopfield/$1" \
-  -X_dir "out_pathways/N2048-p3-s512-a02-2" \
+  -fileroot "out/$1" \
+  -X_dir "out/pathways/N2048-p3-s512-a02-2" \
   -p 3 \
   -gamma 0.05 \
   -incomp 0. -inacc 0.01 -beta 100. \

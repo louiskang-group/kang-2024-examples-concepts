@@ -1,0 +1,15 @@
+
+STARTING SIMULATION FOR out/sweep/sc-s030
+Pattern directory contains 2048 neurons, 3 categories, and 512 examples
+Sparsenseses detected: 0.020 and 0.200
+
+STARTING NETWORK SETUP
+Storing 3 categories with 30 examples
+Testing 30 cues
+
+STARTING FINAL SIMULATION
+Done in 0.75 s
+Mean overlap 0.007 --> 0.182
+
+SIMULATION COMPLETE
+

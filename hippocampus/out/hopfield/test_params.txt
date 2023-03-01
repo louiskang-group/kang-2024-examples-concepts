@@ -1,4 +1,4 @@
-seed             = 54472793
+seed             = 54636429
 
 T_sim            = 10
 T_rec            = 10
@@ -6,7 +6,7 @@ update_type      = 1
 
 N                = 2048
 p                = 3
-s                = 20
+s                = 100
 gamma            = 0.050000
 beta             = 100.000000
 
@@ -26,4 +26,4 @@ n_value          = 7
 T_search         = 3
 n_search         = 20
 
-theta_max    = 0.500000
+theta_max    = 0.620000

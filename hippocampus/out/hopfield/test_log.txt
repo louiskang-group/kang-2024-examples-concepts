@@ -4,28 +4,28 @@ Pattern directory contains 2048 neurons, 3 categories, and 512 examples
 Sparsenseses detected: 0.020 and 0.200
 
 STARTING NETWORK SETUP
-Storing 3 categories with 20 examples
+Storing 3 categories with 100 examples
 Testing 30 cues
 Maximizing overlap w.r.t. theta using 2 rounds of 7 values
 Theta search range from 0.290 to 0.710
 
 STARTING THETA SEARCH ROUND 1 of 2
 
-Round 1, theta = 0.320: done in 0.05 s, mean overlap 1.001
-Round 1, theta = 0.380: done in 0.05 s, mean overlap 1.001
-Round 1, theta = 0.440: done in 0.05 s, mean overlap 1.001
+Round 1, theta = 0.320: done in 0.06 s, mean overlap 0.846
+Round 1, theta = 0.380: done in 0.05 s, mean overlap 0.960
+Round 1, theta = 0.440: done in 0.04 s, mean overlap 0.996
 Round 1, theta = 0.500: done in 0.05 s, mean overlap 1.001
-Round 1, theta = 0.560: done in 0.05 s, mean overlap 1.001
-Round 1, theta = 0.620: done in 0.05 s, mean overlap 1.001
-Round 1, theta = 0.680: done in 0.05 s, mean overlap 1.001
+Round 1, theta = 0.560: done in 0.04 s, mean overlap 1.001
+Round 1, theta = 0.620: done in 0.04 s, mean overlap 1.001
+Round 1, theta = 0.680: done in 0.04 s, mean overlap 1.001
 Maximum overlap achieved by multiple theta values, reporting mean
-Full overlap of 1.000 achieved by theta = 0.500 in round 1
+Full overlap of 1.000 achieved by theta = 0.620 in round 1
 
-THETA SEARCH: 0.500 ACHIEVES MAXIMUM MEAN OVERLAP 1.001
+THETA SEARCH: 0.620 ACHIEVES MAXIMUM MEAN OVERLAP 1.001
 
 STARTING FINAL SIMULATION
 Done in 0.23 s
-Mean overlap 0.983 --> 1.001 achieved by theta = 0.500
+Mean overlap 0.985 --> 1.001 achieved by theta = 0.620
 
 SIMULATION COMPLETE
 

@@ -8,8 +8,8 @@ Storing 3 categories with 10 examples
 Testing 30 cues
 
 STARTING FINAL SIMULATION
-Done in 0.93 s
-Mean overlap 0.044 --> 1.001
+Done in 0.82 s
+Mean overlap 0.045 --> 1.000
 
 SIMULATION COMPLETE
 

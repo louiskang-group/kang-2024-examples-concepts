@@ -9,7 +9,7 @@ Testing 30 cues
 
 STARTING FINAL SIMULATION
 Done in 0.91 s
-Mean overlap 0.199 --> 0.325
+Mean overlap 0.186 --> 0.312
 
 SIMULATION COMPLETE
 

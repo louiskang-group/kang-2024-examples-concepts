@@ -1,0 +1,5 @@
+nbname="${1:?Error: the notebook name must be specified}" 
+scriptname="converted/${nbname%.ipynb}" 
+jupyter nbconvert --to script --output "$scriptname" "$nbname"
+sed -i '/^# >>\$/,$d' "$scriptname.py"
+sed -i '/^# >>>/,/^# <<</d' "$scriptname.py"

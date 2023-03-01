@@ -1,0 +1,25 @@
+seed            = 97065491
+
+T_sim           = 120
+T_rec           = -2
+update_type     = 1
+
+N               = 2048
+p               = 3
+s               = 50
+gamma           = 0.050000
+beta            = 100.000000
+field           = 0.000000
+
+theta_type      = 2
+theta_start     = 0.600000
+theta_end       = 0.200000
+T_theta         = 20
+theta_file      = 
+cycle_theta     = 0
+
+X_dir           = out/pathways/N2048-p3-s512-a02-2
+n_cue           = 30
+incomp          = 0.000000
+inacc           = 0.010000
+record_type     = 0

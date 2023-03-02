@@ -1,16 +1,12 @@
 import os, sys
-import time
 
 import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import Dataset
 
-import matplotlib.pyplot as plt
-import h5py
-import csv
 
-
+# Taking a subset of a dataset and adding an additional label to each item
 class RelabeledSubset(Dataset):
     def __init__(self, dataset, class_size='all', class_inds='all',
                  target2_config='none',
@@ -25,11 +21,14 @@ class RelabeledSubset(Dataset):
         else:
             if class_inds == 'all':
                 class_inds = list(dataset.class_to_idx.values())
+            # If class_inds are provided, take only those classes
             inds_by_class = [torch.where(dataset.targets == class_idx)[0]
                              for class_idx in class_inds]
+            # Pick subsample of images in each valid class
             if class_size != 'all':
                 inds_by_class = [inds[:class_size] for inds in inds_by_class]
                 
+            # Generate subset
             subset_inds = torch.cat(inds_by_class)
             subset_inds = subset_inds[torch.randperm(len(subset_inds))]
             self.data = torch.index_select(torch.as_tensor(dataset.data),
@@ -37,13 +36,15 @@ class RelabeledSubset(Dataset):
             self.targets = torch.index_select(torch.as_tensor(dataset.targets),
                                               0, subset_inds)
         
+        # Each item gets a different second label
         if target2_config == 'index':
             self.targets2 = torch.arange(len(self.targets),
                                          device=self.targets.device)
+        # Second labels are obtained by shuffling the original labels
         elif target2_config == 'shuffle':
             perm = torch.randperm(len(self.targets))
             self.targets2 = self.targets[perm].clone()
-        # integer sets number of episodes
+        # An integer argument determines the number of randomly assigned sets
         elif type(target2_config) == int:
             self.targets2 = torch.arange(len(self.targets),
                                          device=self.targets.device)
@@ -81,6 +82,7 @@ class RelabeledSubset(Dataset):
 
 
 
+# Covariance matrix
 def cov_matrix(X):
     if X.ndim < 2:
         raise Exception("input must have at least 2 dimensions")
@@ -89,6 +91,7 @@ def cov_matrix(X):
     X = X - mean
     return 1./(N-1) * X @ X.transpose(-1, -2)
 
+# DeCov loss by Cogswell et al., ICLR (2016)
 def decov_criterion(activations):
     cov = cov_matrix(activations.T)
     cov.diagonal().zero_()
@@ -97,6 +100,8 @@ def decov_criterion(activations):
     return decov_loss
 
 
+# Square of correlation matrix with eps introduced in the denominator to aid
+# numerical convergence
 def corr_matrix_sq(X, eps=0.):
     if X.ndim < 2:
         raise Exception("input must have at least 2 dimensions")
@@ -109,6 +114,7 @@ def corr_matrix_sq(X, eps=0.):
     corr_sq /= torch.outer(var, var)
     return 1./(N-1.)**2 * corr_sq
 
+# DeCorr loss function
 def decorr_criterion(activations, eps=1e-3):
     corr_sq = corr_matrix_sq(activations, eps)
     corr_sq.diagonal().zero_()
@@ -116,6 +122,7 @@ def decorr_criterion(activations, eps=1e-3):
     
     return decorr_loss
 
+# HalfCorr loss function
 def halfcorr_criterion(activations, eps=1e-3):
     half = int(round(activations.shape[-1]/2))
     corr_sq = corr_matrix_sq(activations[:,half:], eps)
@@ -125,6 +132,7 @@ def halfcorr_criterion(activations, eps=1e-3):
     return halfcorr_loss
 
 
+# Two-layer perceptron for MNIST data and a single task
 class MLP(nn.Module):
     def __init__(self, hidden_size, target_size,
                  nonlinearity1=nn.ReLU(inplace=True), nonlinearity2=nn.Identity()):
@@ -152,6 +160,7 @@ class MLP(nn.Module):
         return activations, logits
     
     
+# Two-layer perceptron with MNIST data and two tasks
 class TwoTargetMLP(nn.Module):
     def __init__(self, hidden_size, target1_size, target2_size,
                  nonlinearity1=nn.ReLU(inplace=True), nonlinearity2=nn.Identity()):

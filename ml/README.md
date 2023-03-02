@@ -2,12 +2,12 @@
 
 This directory contains PyTorch code for example and concept learning in multilayer perceptrons using the DeCorr and HalfCorr loss functions
 
-Note that "category" or "class" in the code refers to "concept" in our manuscript. Note that "episode" refers to "set" in our manuscript.
+Note that "category" or "class" in the code refers to "concept" in our manuscript.
 
 Subdirectories:
-- `bin`: Helper script `nb2script.sh`
-- `converted`: Converted Jupyter notebooks from `nb2script.sh`
-- `out`: Output files of network traning and simulations
+- `converted`: Conversion script `nb2script.sh` and converted Jupyter notebooks
+- `lib`: Libraries used for network training
+- `out`: Output files of trained networks
 
 
 # Requirements
@@ -25,73 +25,28 @@ Required python packages are listed below, with versions checked in parentheses.
 - jupyterlab (or jupyter or a different notebook viewer)
 - h5py
 - ipynbname
+- jupyterlab-nvdashboard (not required but helpful for monitoring multiprocessing)
 
-### `torch.multiprocessing` helper script `nb2script.sh`
+### `multiprocessing` helper script `nb2script.sh`
 
-`torch.multiprocessing` does not work from Jupyter notebooks. To provide this functionality, we provide a helper script `nb2script.sh` in the `bin` directory that converts the Jupyter notebook to a python script. It then discards code not required for multiprocessing. The multiprocessing script can then be called from the notebook. Remember to enable execution by running
+We would like to use `torch.multiprocessing` to train many networks in parallel, but this library does not work from Jupyter notebooks. To provide this functionality, we provide a helper script `nb2script.sh` in the `converted` directory that converts the Jupyter notebook to a python script and discards code not required for multiprocessing. The multiprocessing script can then be called from the notebook. Remember to enable execution by running
 ```console
-$ chmod +x bin/nb2script.sh
+$ chmod +x converted/nb2script.sh
 ```
 
 
+# Training and evaluation
 
-# Simulations
+The following Jupyter notebooks can be evaluated in any order. In general, variable names with all capitals indicate parameters meant to be modified.
 
-Pre-generated outputs for each simulation file have been provided, so they can be run in any order. To follow the simulation pipeline and regenerate outputs, run the files in sequence from `1_pathways.ipynb` to `4_visualization.ipynb`. Outputs are stored in corresponding `out_*` directories.
+### `1task-concept.ipynb`
 
+This Jupyter notebook trains baseline and DeCorr networks to perform digit classification of MNIST images, which requires merging similar images into concepts.
 
-### `1_pathways.ipynb`
+### `1task-example.ipynb`
 
-This Jupyter Python notebook generates MF and PP encodings by
-- downloading the FashionMNIST dataset,
-- training an autoencoder on FashionMNIST images whose middle layer represents EC,
-- propagating EC encodings forward to DG, MF, and PP,
-- and training a feedforward decoder to revert MF and PP encodings back to EC.
+This Jupyter notebook trains baseline and DeCorr networks to perform set identification of MNIST images, which requires distinguishing similar images as separate examples.
 
-### `2a_hopfield.sh`
+### `2tasks.ipynb`
 
-`2a_hopfield.sh` is a base script for running a Hopfield network simulation. At least the filename root must be provided as an argument. One can run a test simulation with example load 100, sparse cues, sparse targets, and a search over theta values to maximize target overlaps:
-```
-$ ./2a_hopfield.sh hopfield/test -s 100 -sparse_cue -sparse_target -theta_mid 0.5 -n_round 2 -n_value 7
-
-STARTING SIMULATION FOR out/hopfield/test
-Pattern directory contains 2048 neurons, 3 categories, and 512 examples
-Sparsenseses detected: 0.020 and 0.200
-...
-
-```
-
-
-### `2b_sweep.sh`
-
-`2b_sweep.sh` is a sample script for sweeping through cue types, target types, and example loads. It calls `2a_hopfield.sh` with different parameters in parallel. It sweeps through MF examples, PP examples, and combined examples as cues. It sweeps through MF examples and PP concepts as targets. For example, to run simulations with 1, 3, 10, 30, and 100 examples stored per concept, run
-```
-$ ./2b_sweep.sh 001 003 010 030 100
-
-./2a_hopfield.sh sweep/ss-s001 -s 001 -sparse_cue -sparse_target -theta 0.5 -no_search -no_shuffle
-./2a_hopfield.sh sweep/ss-s003 -s 003 -sparse_cue -sparse_target -theta 0.5 -no_search -no_shuffle
-...
-
-```
-
-
-### `2c_oscillation.sh`
-
-`2c_oscillation.sh` is a sample script for running a Hopfield network simulation with oscillatory theta. It has example load 40, oscillation period 20, and sharp changes between theta values of 0.6 and 0.2. Run
-```
-$ ./2c_oscillation.sh
-
-STARTING SIMULATION FOR out/oscillation/baseline
-Pattern directory contains 2048 neurons, 3 categories, and 512 examples
-Sparsenseses detected: 0.020 and 0.200
-...
-
-```
-
-
-### `3_visualization.ipynb`
-
-This Jupyter Python notebook generates visualizations of Hopfield network activity generated by `2b_sweep.sh` and `2c_oscillation.sh` by
-- loading networks trained in `1_pathways.ipynb`
-- passing Hopfield network activity through the feedforward decoder to obtain EC representations
-- and passing the EC representations through the decoding layers of the autoencoder.
+This Jupyter notebook trains baseline, DeCorr, and HalfCorr networks to perform digit classification and set identification of MNIST images.

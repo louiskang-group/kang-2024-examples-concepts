@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# Only differences between this notebook an `1task-concept.ipynb` will be commented here. See `1task-concept.ipynb` for more thorough explanations.
+
 # # General setup
 
-# In[3]:
+# In[15]:
 
 
 import os, sys, subprocess
@@ -37,14 +39,14 @@ if not utils.is_notebook():
     import torch.multiprocessing as mp
 
 
-# In[4]:
+# In[16]:
 
 
 
 
 # # Loading Data
 
-# In[5]:
+# In[17]:
 
 
 transform = Compose([
@@ -53,52 +55,52 @@ transform = Compose([
 ])
 
 raw_train_dataset = datasets.MNIST(
-    root="../../../PyTorchShared/Datasets",
+    root="../../PyTorchShared/Datasets",
     train=True,
     download=True,
     transform=transform
 )
 
 raw_test_dataset = datasets.MNIST(
-    root="../../../PyTorchShared/Datasets",
+    root="../../PyTorchShared/Datasets",
     train=False,
     download=True,
     transform=transform
 )
 
 
-# In[6]:
+# In[18]:
 
 
 
 
 # # Training
 
-# In[7]:
+# In[23]:
 
 
-HIDDEN_SIZE = 50
-CLASS_SIZES = [200, 400, 600, 800, 1000]
-num_sizes = len(CLASS_SIZES)
+HIDDEN_SIZE = 100
+CLASS_SIZE = 100
 BATCH_SIZE = 50
+NUM_SETS = 10
 
 DECORR_STRENGTH = 0.5
-NUM_REPLICATES = 32
+NUM_REPLICATES = 16
+decorr_criteria = itertools.chain.from_iterable((
+    itertools.repeat(None, NUM_REPLICATES),
+    itertools.repeat(ml.decorr_criterion, NUM_REPLICATES),
+    itertools.repeat(ml.halfcorr_criterion, NUM_REPLICATES)
+))
 
-class_sizes = [rep
-               for size in CLASS_SIZES
-               for rep in (size,)*NUM_REPLICATES]*2
-decorr_criteria = [rep
-                   for criterion in (None, ml.decorr_criterion)
-                   for rep in (criterion,)*NUM_REPLICATES*num_sizes]
+# Evaluate digit classification performance with held-out test data and save test
+# activations and outputs.
+MODE = ['testval', 'testsave']
 
-MODE = 'testval'
-
-train_datasets = [(
+train_dataset = (
     ml.RelabeledSubset,
-    dict(dataset=raw_train_dataset, class_size=class_size,
-         target2_config='none', transform=transform)
-) for class_size in class_sizes]
+    dict(dataset=raw_train_dataset, class_size=CLASS_SIZE,
+         target2_config=NUM_SETS, transform=transform)
+)
 test_dataset = (
     ml.RelabeledSubset,
     dict(dataset=raw_test_dataset,
@@ -106,8 +108,9 @@ test_dataset = (
 )
 
 model = (
-    ml.MLP,
-    dict(hidden_size=HIDDEN_SIZE, target_size=10,
+    ml.TwoTargetMLP,
+    dict(hidden_size=HIDDEN_SIZE,
+         target1_size=10, target2_size=NUM_SETS,
          nonlinearity1=nn.Tanh(), nonlinearity2=nn.Tanh())
 )
 
@@ -115,49 +118,51 @@ devices = itertools.cycle([torch.device('cuda', i)
                            for i in range(torch.cuda.device_count())])
 
 
-# In[8]:
+# In[24]:
 
 
-NUM_EPOCHS = 40
-PRINT_EPOCHS = 0
-LR_MILESTONES = [NUM_EPOCHS]
+NUM_EPOCHS = 100
+PRINT_EPOCHS = NUM_EPOCHS
 LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 0
-NOISE_FN = None
+
+def NOISE_FN(data):
+    mask = torch.rand_like(data)
+    threshold = mask.quantile(0.2)
+    mask = (mask - threshold > 0).float()
+    noisy_data = data * mask
+    return noisy_data
 
 
-# In[9]:
+
+# In[25]:
 
 
-kwargs_map = [dict(device=dev,
-                   train_dataset=param0,
-                   decorr_criterion=param1)
-               for dev, param0, param1
-               in zip(devices,
-                      train_datasets,
-                      decorr_criteria)]
+kwargs_map = [dict(device=dev, decorr_criterion=param)
+               for dev, param
+               in zip(devices, decorr_criteria)]
 kwargs_partial = dict(model=model,
                       mode=MODE,
+                      train_dataset=train_dataset,
                       test_dataset=test_dataset,
                       decorr_strength=DECORR_STRENGTH,
                       noise_fn=NOISE_FN,
                       batch_size=BATCH_SIZE,
                       learning_rate=LEARNING_RATE,
-                      lr_milestones=LR_MILESTONES,
                       num_epochs=NUM_EPOCHS,
                       print_epochs=PRINT_EPOCHS)
 
 
-# In[10]:
+# In[26]:
 
 
 
 
-# In[11]:
+# In[27]:
 
 
 if not utils.is_notebook():
-    train_partial = partial(train.train, **kwargs_partial)
+    train_partial = partial(train.two_target_train, **kwargs_partial)
    
     MAX_PROCESSES = 2 * torch.cuda.device_count()
     
@@ -172,6 +177,6 @@ if not utils.is_notebook():
         utils.end_timer_and_print()
 
 
-# In[37]:
+# In[28]:
 
 

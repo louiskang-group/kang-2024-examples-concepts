@@ -1,6 +1,6 @@
 # Overview
 
-This directory contains PyTorch code for example and concept learning in multilayer perceptrons using the DeCorr and HalfCorr loss functions
+This directory contains PyTorch code for example and concept learning in multilayer perceptrons using the DeCorr and HalfCorr loss functions.
 
 Note that "category" or "class" in the code refers to "concept" in our manuscript.
 
@@ -29,15 +29,15 @@ Required python packages are listed below, with versions checked in parentheses.
 
 ### `multiprocessing` helper script `nb2script.sh`
 
-We would like to use `torch.multiprocessing` to train many networks in parallel, but this library does not work from Jupyter notebooks. To provide this functionality, we provide a helper script `nb2script.sh` in the `converted` directory that converts the Jupyter notebook to a python script and discards code not required for multiprocessing. The multiprocessing script can then be called from the notebook. Remember to enable execution by running
+We would like to use `torch.multiprocessing` to train replicate networks in parallel, but this library does not work from Jupyter notebooks. To provide this functionality, we provide a helper script `nb2script.sh` in the `converted` directory that converts the Jupyter notebook to a python script and discards code not required for multiprocessing. The multiprocessing script can then be called from the notebook. Remember to enable execution by running from the `converted` directory
 ```console
-$ chmod +x converted/nb2script.sh
+$ chmod +x nb2script.sh
 ```
 
 
 # Training and evaluation
 
-The following Jupyter notebooks can be evaluated in any order. In general, variable names with all capitals indicate parameters meant to be modified.
+The following Jupyter notebooks can be evaluated in any order. In general, variable names with all capitals indicate modifiable hyperparameters.
 
 ### `1task-concept.ipynb`
 

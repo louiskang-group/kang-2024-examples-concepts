@@ -1,3 +1,16 @@
+"""
+
+utils.py:   Useful utility functions.
+
+"""
+
+__author__ = "Louis Kang"
+__date__ = "2023/03/07"
+__license__ = "GPLv3"
+__reference__ = "To be determined"
+
+
+
 import os, sys
 import time
 import itertools
@@ -8,11 +21,14 @@ import torch
 import matplotlib.pyplot as plt
 
 
+# Detecting if code is run from a Jupyter notebook
 def is_notebook():
     return os.path.basename(sys.argv[0]) == 'ipykernel_launcher.py'
 
+# General ReLU function that works for NumPy and PyTorch
 def relu(x):
     return x * (x > 0)
+
 
 # Timing utilities
 start_time = None
@@ -27,28 +43,29 @@ def end_timer_and_print():
     end_time = time.time()
     print("\nTotal execution time {:.3f} sec".format(end_time - start_time))
 
-
-# Plot utilities
-def pad(lims, margins):
-    if isinstance(margins, (int, float)):
-        margins = (margins, margins)
-        
-    lim_min = lims[0] - margins[0]*(lims[1]-lims[0])
-    lim_max = lims[1] + margins[1]*(lims[1]-lims[0])
-    
-    return (lim_min, lim_max)
-
-    
-# multiprocessing utilities
+   
+# Extends multiprocessing method Pool.starmap() to accept keyword arguments
 def kwstarmap(pool, fn, kwargs_iter):
     args_for_starmap = zip(itertools.repeat(fn), kwargs_iter)
     return pool.starmap(apply_kwargs, args_for_starmap)
 
 def apply_kwargs(fn, kwargs):
     return fn(**kwargs)
-
     
+
 def plot_images(img_list, num=6, size=12):
+    """
+    Plot batches of grayscale images as a grid
+    
+    Inputs
+    ------
+    img_list : tuple, list, NumPy array, or PyTorch tensor with dimensions
+        (image_width, image_height) or (n_columns, image_width, image_height) or
+        (n_rows, n_columns, image_width, image_height)
+    num : maximum number of image columns
+    size : width of image grid
+    """
+    # Converts all img_list types to list
     if isinstance(img_list, tuple):
         img_list = list(img_list)
     elif isinstance(img_list, (np.ndarray, torch.Tensor)):
@@ -60,6 +77,7 @@ def plot_images(img_list, num=6, size=12):
         if isinstance(img_list[i], torch.Tensor):
             img_list[i] = img_list[i].cpu().numpy()
             
+        # Expanding all img_list depths to 4
         depth = img_list[i].ndim
         if depth == 4:
             continue
@@ -87,6 +105,7 @@ def plot_images(img_list, num=6, size=12):
     
     plt.figure(figsize=(size, ysize))
     for i, imgs in enumerate(img_list):
+        # Converting pixel values between -1 and 1 to between 0 and 1
         if np.min(imgs) < 0.:
             imgs = 0.5 * (imgs + 1.)
         for j, img in enumerate(imgs):
@@ -99,7 +118,9 @@ def plot_images(img_list, num=6, size=12):
             plt.axis('off')
 
     plt.show()
-    
+
+
+# Estimation using the largest, possibly unnormalized logit
 def logits_to_accuracy(logits, targets, reduction='mean'):
     accuracies = logits.argmax(-1) == targets
     if reduction == 'mean':
@@ -108,4 +129,3 @@ def logits_to_accuracy(logits, targets, reduction='mean'):
         return accuracies.int().sum().item()
     else:
         return accuracies.int()
-

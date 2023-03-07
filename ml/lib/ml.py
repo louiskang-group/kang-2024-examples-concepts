@@ -1,3 +1,18 @@
+"""
+
+ml.py:  Classes for introducing a second set label to a dataset; computing the
+        DeCorr, HalfCorr, and DeCov loss functions; and creating one-target and
+        two-target multilayer perceptrons.
+
+"""
+
+__author__ = "Louis Kang"
+__date__ = "2023/03/07"
+__license__ = "GPLv3"
+__reference__ = "To be determined"
+
+
+
 import os, sys
 
 import numpy as np

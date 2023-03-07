@@ -6,14 +6,14 @@
  *
  *  AUTHOR:       Louis Kang
  *
- *  LICENSING:  
+ *  LICENSE:      GPLv3
  *
- *  REFERENCE:  
+ *  REFERENCE:    To be determined
  *
  *  PURPOSE:      Simulating a Hopfield model with dual encodings. The
  *                inhibition level can vary over time.
  *
- *  DEPENDENCIES: Intel oneAPI MKL
+ *  DEPENDENCIES: Intel Math Kernel Library
  *
  *******************************************************************************
  *

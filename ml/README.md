@@ -6,7 +6,7 @@ Note that "category" or "class" in the code refers to "concept" in our manuscrip
 
 Subdirectories:
 - `converted`: Conversion script `nb2script.sh` and converted Jupyter notebooks
-- `lib`: Libraries used for network training
+- `lib`: Modules used for network training
 - `out`: Output files of trained networks
 
 

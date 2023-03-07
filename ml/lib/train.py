@@ -1,3 +1,16 @@
+"""
+
+train.py:   Functions for training neural networks on single tasks and two tasks.
+
+"""
+
+__author__ = "Louis Kang"
+__date__ = "2023/03/07"
+__license__ = "GPLv3"
+__reference__ = "To be determined"
+
+
+
 import os, sys
 import gc
 

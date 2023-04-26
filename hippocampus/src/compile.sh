@@ -14,4 +14,4 @@ else
   args+=" -Wno-format-overflow"
 fi
 
-gcc -o "${1/%.c/.o}" "$1" -march=native -mtune=native -Ofast -lziggurat $args
+gcc -o "${1/%.c/.o}" "$1" -march=native -mtune=native -Ofast $args

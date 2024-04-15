@@ -662,7 +662,7 @@ void setup_parameters (int argc, char *argv[]) {
     print_err("sparsenesses\n");
     exit(1);
   } else {
-    print_stat("Sparsenseses detected: %4.3f and %4.3f\n", a_sparse, a_dense);
+    print_stat("Sparsenesses detected: %4.3f and %4.3f\n", a_sparse, a_dense);
   }
 
 

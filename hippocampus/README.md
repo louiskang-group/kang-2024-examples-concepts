@@ -95,7 +95,7 @@ $ ./2a_hopfield.sh hopfield/test -s 100 -sparse_cue -sparse_target -theta_mid 0.
 
 STARTING SIMULATION FOR out/hopfield/test
 Pattern directory contains 2048 neurons, 3 categories, and 512 examples
-Sparsenseses detected: 0.020 and 0.200
+Sparsenesses detected: 0.020 and 0.200
 ...
 
 ```
@@ -122,7 +122,7 @@ $ ./2c_oscillation.sh
 
 STARTING SIMULATION FOR out/oscillation/baseline
 Pattern directory contains 2048 neurons, 3 categories, and 512 examples
-Sparsenseses detected: 0.020 and 0.200
+Sparsenesses detected: 0.020 and 0.200
 ...
 
 ```
